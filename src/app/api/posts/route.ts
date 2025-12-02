@@ -1,25 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import Post from "@/lib/models/Post";
-import { IncomingForm } from "formidable";
 import fs from "fs";
 import path from "path";
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
-function parseForm(req: Request): Promise<{ fields: any; files: any }> {
-  return new Promise((resolve, reject) => {
-    const form = new IncomingForm({ multiples: false });
-    form.parse(req as any, (err, fields, files) => {
-      if (err) return reject(err);
-      resolve({ fields, files });
-    });
-  });
-}
+export const maxDuration = 30;
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,39 +24,47 @@ export async function POST(request: NextRequest) {
   try {
     await connectDB();
 
-    // parse multipart/form-data with formidable
-    const { fields, files } = await parseForm(request as unknown as Request);
+    const contentType = request.headers.get("content-type");
+    let title: string;
+    let content: string;
+    let author: string;
+    let imageUrl: string | undefined = undefined;
 
-    const title = fields.title as string;
-    const content = fields.content as string;
-    const author = fields.author as string;
+    if (contentType?.includes("multipart/form-data")) {
+      // Parse multipart form data
+      const formData = await request.formData();
+      title = formData.get("title") as string;
+      content = formData.get("content") as string;
+      author = formData.get("author") as string;
+      const imageFile = formData.get("image") as File | null;
+
+      if (imageFile && imageFile.size > 0) {
+        const buffer = await imageFile.arrayBuffer();
+        const uploadsDir = path.join(process.cwd(), "public", "uploads");
+        if (!fs.existsSync(uploadsDir)) {
+          fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+
+        const ext = path.extname(imageFile.name) || ".bin";
+        const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}${ext}`;
+        const dest = path.join(uploadsDir, fileName);
+
+        fs.writeFileSync(dest, Buffer.from(buffer));
+        imageUrl = `/uploads/${fileName}`;
+      }
+    } else {
+      // Parse JSON
+      const body = await request.json();
+      title = body.title;
+      content = body.content;
+      author = body.author;
+    }
 
     if (!title || !content || !author) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
-    }
-
-    let imageUrl: string | undefined = undefined;
-
-    if (files && (files as any).image) {
-      const file = (files as any).image;
-      const filePath = Array.isArray(file) ? file[0].filepath : file.filepath;
-      const originalName = Array.isArray(file) ? file[0].originalFilename : file.originalFilename;
-
-      // ensure uploads folder exists
-      const uploadsDir = path.join(process.cwd(), "public", "uploads");
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-
-      const ext = path.extname(originalName || "") || path.extname(filePath) || ".bin";
-      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}${ext}`;
-      const dest = path.join(uploadsDir, fileName);
-
-      // move temp file to public/uploads
-      fs.copyFileSync(filePath, dest);
-
-      imageUrl = `/uploads/${fileName}`;
     }
 
     const post = await Post.create({
