@@ -18,11 +18,30 @@ export function PostsList() {
     content: "",
     author: "",
   });
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.title || !formData.content || !formData.author) {
       alert("Please fill in all fields");
+      return;
+    }
+
+    // If there's an image, send multipart/form-data
+    if (imageFile) {
+      const fd = new FormData();
+      fd.append("title", formData.title);
+      fd.append("content", formData.content);
+      fd.append("author", formData.author);
+      fd.append("image", imageFile);
+
+      createMutation.mutate(fd, {
+        onSuccess: () => {
+          setFormData({ title: "", content: "", author: "" });
+          setImageFile(null);
+          setShowForm(false);
+        },
+      });
       return;
     }
 
@@ -98,6 +117,14 @@ export function PostsList() {
                   }
                   className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={5}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Image (optional)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setImageFile(e.target.files ? e.target.files[0] : null)}
                 />
               </div>
               <div className="flex gap-2">

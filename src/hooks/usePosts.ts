@@ -6,6 +6,7 @@ export interface Post {
   title: string;
   content: string;
   author: string;
+  imageUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -42,7 +43,15 @@ export const useCreatePost = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (newPost: Omit<Post, "id" | "createdAt" | "updatedAt">) => {
+    mutationFn: async (newPost: FormData | Omit<Post, "id" | "createdAt" | "updatedAt">) => {
+      // if FormData is provided (contains file), send multipart/form-data
+      if (newPost instanceof FormData) {
+        const { data } = await api.post<Post>("/posts", newPost, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        return data;
+      }
+
       const { data } = await api.post<Post>("/posts", newPost);
       return data;
     },

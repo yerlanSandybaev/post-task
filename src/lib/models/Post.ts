@@ -4,6 +4,7 @@ export interface IPost extends Document {
   title: string;
   content: string;
   author: string;
+  imageUrl?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,6 +25,10 @@ const postSchema = new Schema<IPost>(
       type: String,
       required: [true, "Please provide an author name"],
       trim: true,
+    },
+    imageUrl: {
+      type: String,
+      required: false,
     },
   },
   {
