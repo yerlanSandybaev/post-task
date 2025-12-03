@@ -1,16 +1,21 @@
 "use client";
 
 import React, { useState } from "react";
-import { usePosts, useCreatePost, useDeletePost } from "@/hooks/usePosts";
+import { trpc } from "@/utils/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Loader2, Trash2, Plus } from "lucide-react";
 
 export function PostsList() {
-  const { data: posts, isLoading, error } = usePosts();
-  const createMutation = useCreatePost();
-  const deleteMutation = useDeletePost();
+  const utils = trpc.useContext();
+  const { data: posts, isLoading, error } = trpc.posts.getAll.useQuery();
+  const createMutation = trpc.posts.create.useMutation({
+    onSuccess: () => utils.posts.getAll.invalidate(),
+  });
+  const deleteMutation = trpc.posts.delete.useMutation({
+    onSuccess: () => utils.posts.getAll.invalidate(),
+  });
 
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
@@ -26,34 +31,56 @@ export function PostsList() {
       alert("Please fill in all fields");
       return;
     }
-
-    // If there's an image, send multipart/form-data
+    // If there's an image, convert to base64 and send via tRPC
     if (imageFile) {
-      const fd = new FormData();
-      fd.append("title", formData.title);
-      fd.append("content", formData.content);
-      fd.append("author", formData.author);
-      fd.append("image", imageFile);
-
-      createMutation.mutate(fd, {
-        onSuccess: () => {
-          setFormData({ title: "", content: "", author: "" });
-          setImageFile(null);
-          setShowForm(false);
-        },
+      const base64 = await new Promise<string | null>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string | null;
+          // data:<mime>;base64,<data>
+          if (!result) return resolve(null);
+          const parts = result.split(',');
+          resolve(parts.length > 1 ? parts[1] : parts[0]);
+        };
+        reader.readAsDataURL(imageFile);
       });
+
+      createMutation.mutate(
+        {
+          title: formData.title,
+          content: formData.content,
+          author: formData.author,
+          imageBase64: base64 ?? undefined,
+          imageName: imageFile.name,
+        },
+        {
+          onSuccess: () => {
+            setFormData({ title: "", content: "", author: "" });
+            setImageFile(null);
+            setShowForm(false);
+          },
+        }
+      );
+
       return;
     }
 
-    createMutation.mutate(formData, {
-      onSuccess: () => {
-        setFormData({ title: "", content: "", author: "" });
-        setShowForm(false);
+    createMutation.mutate(
+      {
+        title: formData.title,
+        content: formData.content,
+        author: formData.author,
       },
-    });
+      {
+        onSuccess: () => {
+          setFormData({ title: "", content: "", author: "" });
+          setShowForm(false);
+        },
+      }
+    );
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: string) => {
     if (confirm("Are you sure you want to delete this post?")) {
       deleteMutation.mutate(id);
     }
@@ -62,7 +89,7 @@ export function PostsList() {
   if (error) {
     return (
       <div className="text-center py-8">
-        <p className="text-red-500">Error loading posts: {(error as Error).message}</p>
+        <p className="text-red-500">Error loading posts</p>
       </div>
     );
   }
@@ -162,21 +189,20 @@ export function PostsList() {
         <div className="grid gap-4">
           {posts && posts.length > 0 ? (
             posts.map((post) => (
-              <Card key={post.id} className="hover:shadow-md transition-shadow">
+              <Card key={(post as any)._id} className="hover:shadow-md transition-shadow">
                 <CardHeader>
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
-                      <CardTitle>{post.title}</CardTitle>
+                      <CardTitle>{(post as any).title}</CardTitle>
                       <p className="text-sm text-gray-500 mt-1">
-                        By {post.author} •{" "}
-                        {new Date(post.createdAt).toLocaleDateString()}
+                        By {(post as any).author} • {new Date((post as any).createdAt).toLocaleDateString()}
                       </p>
                     </div>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleDelete(post.id)}
-                      disabled={deleteMutation.isPending}
+                      onClick={() => handleDelete((post as any)._id)}
+                      disabled={!!(deleteMutation as any).isLoading}
                       className="text-red-500 hover:text-red-700"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -184,18 +210,14 @@ export function PostsList() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-gray-700 whitespace-pre-wrap">
-                    {post.content}
-                  </p>
+                  <p className="text-gray-700 whitespace-pre-wrap">{(post as any).content}</p>
                 </CardContent>
               </Card>
             ))
           ) : (
             <div className="text-center py-12">
               <p className="text-gray-500 text-lg">No posts yet</p>
-              <p className="text-gray-400 text-sm">
-                Click "New Post" to create your first post
-              </p>
+              <p className="text-gray-400 text-sm">Click "New Post" to create your first post</p>
             </div>
           )}
         </div>
